@@ -1,21 +1,19 @@
 const express = require('express');
+const mongoose = require('mongoose');
+require('dotenv').config();
+const Task = require('./models/Task');
 
 const app = express();
 const PORT = 5000;
 
-// In-memory task storage
-let tasks = [
-    {
-        id: 1,
-        title: "Learn Express",
-        completed: false
-    },
-    {
-        id: 2,
-        title: "Build REST API",
-        completed: false
-    }
-];
+// Connect to MongoDB
+mongoose.connect(process.env.MONGO_URI)
+    .then(() => {
+        console.log("MongoDB connected successfully");
+    })
+    .catch((err) => {
+        console.error("MongoDB connection failed:", err);
+    });
 
 // Parse JSON request body
 app.use(express.json());
@@ -43,95 +41,116 @@ app.use((req, res, next) => {
     next();
 });
 
-// Route-specific middleware to validate task ID
-const validateTaskId = (req, res, next) => {
-
-    const id = parseInt(req.params.id);
-
-    if (isNaN(id)) {
-        return res.status(400).json({
-            error: "Invalid task ID"
-        });
-    }
-
-    next();
-};
-
 // Home Route
 app.get('/', (req, res) => {
     res.send('Task Manager API is running...');
 });
 
 // GET all tasks
-app.get('/tasks', (req, res) => {
-    res.status(200).json(tasks);
+app.get('/tasks', async (req, res, next) => {
+    try {
+
+        const tasks = await Task.find();
+
+        res.status(200).json(tasks);
+
+    } catch (err) {
+
+        next(err);
+
+    }
+});
+
+// GET task by ID
+app.get('/tasks/:id', async (req, res, next) => {
+    try {
+
+        const task = await Task.findById(req.params.id);
+
+        if (!task) {
+            return res.status(404).json({
+                message: "Task not found"
+            });
+        }
+
+        res.status(200).json(task);
+
+    } catch (err) {
+
+        next(err);
+
+    }
 });
 
 // POST a new task
-app.post('/tasks', (req, res) => {
-    const { title } = req.body;
+app.post('/tasks', async (req, res, next) => {
+    try {
 
-    const newTask = {
-        id: tasks.length + 1,
-        title: title,
-        completed: false
-    };
+        const task = await Task.create(req.body);
 
-    tasks.push(newTask);
+        res.status(201).json(task);
 
-    res.status(201).json(newTask);
+    } catch (err) {
+
+        next(err);
+
+    }
 });
 
 // PUT update a task
-app.put('/tasks/:id', validateTaskId, (req, res) => {
-    const id = parseInt(req.params.id);
+app.put('/tasks/:id', async (req, res, next) => {
+    try {
 
-    const task = tasks.find(task => task.id === id);
+        const task = await Task.findByIdAndUpdate(
+            req.params.id,
+            req.body,
+            { new: true }
+        );
 
-    if (!task) {
-        return res.status(404).json({
-            message: "Task not found"
-        });
+        if (!task) {
+            return res.status(404).json({
+                message: "Task not found"
+            });
+        }
+
+        res.status(200).json(task);
+
+    } catch (err) {
+
+        next(err);
+
     }
-
-    const { title, completed } = req.body;
-
-    if (title !== undefined) {
-        task.title = title;
-    }
-
-    if (completed !== undefined) {
-        task.completed = completed;
-    }
-
-    res.status(200).json(task);
 });
 
 // DELETE a task
-app.delete('/tasks/:id', validateTaskId, (req, res) => {
-    const id = parseInt(req.params.id);
+app.delete('/tasks/:id', async (req, res, next) => {
+    try {
 
-    const taskIndex = tasks.findIndex(task => task.id === id);
+        const task = await Task.findByIdAndDelete(req.params.id);
 
-    if (taskIndex === -1) {
-        return res.status(404).json({
-            message: "Task not found"
+        if (!task) {
+            return res.status(404).json({
+                message: "Task not found"
+            });
+        }
+
+        res.status(200).json({
+            message: "Task deleted successfully"
         });
+
+    } catch (err) {
+
+        next(err);
+
     }
-
-    const deletedTask = tasks.splice(taskIndex, 1);
-
-    res.status(200).json({
-        message: "Task deleted successfully",
-        deletedTask: deletedTask[0]
-    });
 });
 
+// Test Error Route
 app.get('/error', (req, res, next) => {
     next(new Error("Test error"));
 });
 
-// 404 Handler for undefined routes
+// 404 Handler
 app.use((req, res) => {
     res.status(404).json({
         error: "Route not found"
@@ -140,7 +159,7 @@ app.use((req, res) => {
 
 // Global Error Handling Middleware
 app.use((err, req, res, next) => {
-    console.error(err.stack);
+    console.error(err);
 
     res.status(500).json({
         error: "Something went wrong"
